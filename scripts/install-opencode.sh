@@ -124,6 +124,76 @@ remove_commands() {
     done
 }
 
+# -- AGENTS.md rules. --
+# Adds a CRAIC section between markers so it can be cleanly removed without
+# disturbing other content the user or other tools may have added.
+
+CRAIC_MARKER_START="<!-- craic:start -->"
+CRAIC_MARKER_END="<!-- craic:end -->"
+
+CRAIC_AGENTS_BLOCK="$(cat <<'BLOCK'
+<!-- craic:start -->
+## CRAIC
+
+Before starting any implementation task, load the `craic` skill and follow its Core Protocol.
+<!-- craic:end -->
+BLOCK
+)"
+
+configure_agents_md() {
+    local agents_file="${TARGET}/AGENTS.md"
+
+    if [[ -f "${agents_file}" ]]; then
+        if grep -qF "${CRAIC_MARKER_START}" "${agents_file}"; then
+            echo "  CRAIC section already present in ${agents_file}"
+        else
+            printf '\n%s\n' "${CRAIC_AGENTS_BLOCK}" >> "${agents_file}"
+            echo "  Appended CRAIC section to ${agents_file}"
+        fi
+    else
+        mkdir -p "$(dirname "${agents_file}")"
+        printf '%s\n' "${CRAIC_AGENTS_BLOCK}" > "${agents_file}"
+        echo "  Created ${agents_file} with CRAIC section"
+    fi
+}
+
+remove_agents_md() {
+    local agents_file="${TARGET}/AGENTS.md"
+    [[ -f "${agents_file}" ]] || return 0
+
+    if ! grep -qF "${CRAIC_MARKER_START}" "${agents_file}"; then
+        return 0
+    fi
+
+    if ! grep -qF "${CRAIC_MARKER_END}" "${agents_file}"; then
+        echo "  Warning: ${agents_file} has start marker but no end marker — skipping" >&2
+        return 0
+    fi
+
+    # Remove the CRAIC section and any trailing blank lines it left behind.
+    local tmp
+    tmp=$(awk -v start="${CRAIC_MARKER_START}" -v end="${CRAIC_MARKER_END}" '
+        $0 == start { skip=1; next }
+        $0 == end   { skip=0; next }
+        skip { next }
+        { n++; lines[n] = $0 }
+        END {
+            # Find last non-blank line.
+            last = n
+            while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
+            for (i = 1; i <= last; i++) print lines[i]
+        }
+    ' "${agents_file}")
+
+    if [[ -z "${tmp}" ]]; then
+        rm -f "${agents_file}"
+        echo "  Removed ${agents_file} (no other content)"
+    else
+        printf '%s\n' "${tmp}" > "${agents_file}"
+        echo "  Removed CRAIC section from ${agents_file}"
+    fi
+}
+
 # -- MCP configuration. --
 
 configure_mcp() {
@@ -172,6 +242,7 @@ case "${ACTION}" in
         apply install "${TARGET}/skills" "skill" "" "${PLUGIN_DIR}"/skills/*/
         generate_commands "${TARGET}/commands"
         configure_mcp
+        configure_agents_md
         echo ""
         echo "Done. Restart OpenCode to pick up the changes."
         ;;
@@ -180,6 +251,7 @@ case "${ACTION}" in
         apply uninstall "${TARGET}/skills" "skill" "" "${PLUGIN_DIR}"/skills/*/
         remove_commands "${TARGET}/commands"
         remove_mcp
+        remove_agents_md
         echo ""
         echo "Done."
         ;;
