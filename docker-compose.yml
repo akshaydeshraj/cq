@@ -13,7 +13,7 @@ services:
   cq-team-ui:
     build: ./team-ui
     ports:
-      - "3000:3000"
+      - "3000:80"
     depends_on:
       - cq-team-api
 
